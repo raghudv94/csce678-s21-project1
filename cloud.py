@@ -1,4 +1,5 @@
 from basic_defs import cloud_storage, NAS
+from credentials import aws_credentials, gcp_credentials, azure_credentials
 
 import os
 import sys
@@ -6,11 +7,11 @@ import sys
 class AWS_S3(cloud_storage):
     def __init__(self):
         # TODO: Fill in the AWS access key ID
-        self.access_key_id = ""
+        self.access_key_id = aws_credentials.access_key_id
         # TODO: Fill in the AWS access secret key
-        self.access_secret_key = ""
+        self.access_secret_key = aws_credentials.access_secret_key
         # TODO: Fill in the bucket name
-        self.bucket_name = ""
+        self.bucket_name = aws_credentials.bucket_name
 
     # Implement the abstract functions from cloud_storage
     # Hints: Use the following APIs from boto3
@@ -26,13 +27,13 @@ class AWS_S3(cloud_storage):
 class Azure_Blob_Storage(cloud_storage):
     def __init__(self):
         # TODO: Fill in the Azure key
-        self.key = ""
+        self.key = azure_credentials.key
         # TODO: Fill in the Azure connection string
-        self.conn_str = ""
+        self.conn_str = azure_credentials.conn_str
         # TODO: Fill in the account name
         self.account_name = "csce678s21"
         # TODO: Fill in the container name
-        self.container_name = ""
+        self.container_name = azure_credentials.container_name
 
     # Implement the abstract functions from cloud_storage
     # Hints: Use the following APIs from azure.storage.blob
@@ -49,7 +50,7 @@ class Google_Cloud_Storage(cloud_storage):
         # TODO: Download and place the Credential JSON file
         self.credential_file = "gcp-credential.json"
         # TODO: Fill in the container name
-        self.bucket_name = ""
+        self.bucket_name = gcp_credentials.bucket_name
 
     # Implement the abstract functions from cloud_storage
     # Hints: Use the following APIs from google.cloud.storage
