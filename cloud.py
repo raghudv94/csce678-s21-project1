@@ -102,16 +102,13 @@ class Google_Cloud_Storage(cloud_storage):
         return self.gcp_storage_client.list_blobs(self.gcp_bucket)
 
     def read_block(self, offset):
-        # To be Implemented
-        pass
+        self.gcp_bucket.blob(offset).download_as_string()
 
     def write_block(self, block, offset):
-        # To be Implemented
-        pass
+        self.gcp_bucket.blob(offset).upload_from_string(block)
 
     def delete_block(self, offset):
-        # To be Implemented
-        pass
+        self.gcp_bucket.blob(offset).delete()
 
 class RAID_on_Cloud(NAS):
     def __init__(self):
