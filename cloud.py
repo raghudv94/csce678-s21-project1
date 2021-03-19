@@ -71,16 +71,13 @@ class Azure_Blob_Storage(cloud_storage):
         return self.azure_bucket.list_blobs()
 
     def read_block(self, offset):
-        # To be Implemented
-        pass
+        return self.azure_service_client.get_blob_client(container=self.container_name, blob=offset).download_blob().readall()
 
     def write_block(self, block, offset):
-        # To be Implemented
-        pass
+        self.azure_service_client.get_blob_client(container=self.container_name, blob=offset).upload_blob(block)
 
     def delete_block(self, offset):
-        # To be Implemented
-        pass
+        self.azure_service_client.get_blob_client(container=self.container_name, blob=offset).delete_blob()
 
 class Google_Cloud_Storage(cloud_storage):
     def __init__(self):
