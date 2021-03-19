@@ -16,7 +16,7 @@ class AWS_S3(cloud_storage):
         # TODO: Fill in the AWS access secret key
         #self.access_secret_key = aws_credentials.access_secret_key
         # TODO: Fill in the bucket name
-        #self.bucket_name = aws_credentials.bucket_name
+        self.bucket_name = aws_credentials.bucket_name
         self.s3 = boto3.resource(service_name = 's3', aws_access_key_id = aws_credentials.access_key_id, aws_secret_access_key = aws_credentials.access_secret_key)
         self.aws_bucket = self.s3.Bucket(aws_credentials.bucket_name)
                     
@@ -37,16 +37,13 @@ class AWS_S3(cloud_storage):
         return self.aws_bucket.objects.all()
 
     def read_block(self, offset):
-        # To be Implemented
-        pass
+        return self.s3.Object(self.bucket_name, offset).get()['Body'].read()
 
     def write_block(self, block, offset):
-        # To be Implemented
-        pass
+        self.s3.Object(self.bucket_name, offset).put(Body=block)
 
     def delete_block(self, offset):
-        # To be Implemented
-        pass
+        self.s3.Object(self.bucket_name, offset).delete()
 
 class Azure_Blob_Storage(cloud_storage):
     def __init__(self):
