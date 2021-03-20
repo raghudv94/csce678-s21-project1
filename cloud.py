@@ -8,6 +8,7 @@ from google.cloud import storage
 import os
 import sys
 import re
+import hashlib
 
 class AWS_S3(cloud_storage):
     def __init__(self):
@@ -34,16 +35,26 @@ class AWS_S3(cloud_storage):
     #         https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#object
     def list_blocks(self):
         # Return list of all objects present under the bucket
-        return self.aws_bucket.objects.all()
+        obj_list = []
+        for obj in self.aws_bucket.objects.all():
+            obj_list.append(int(obj.key))
+        return obj_list
 
     def read_block(self, offset):
-        return self.s3.Object(self.bucket_name, offset).get()['Body'].read()
+        try:
+            return bytearray(self.s3.Object(self.bucket_name, str(offset)).get()['Body'].read())
+        except:
+            return ''
 
     def write_block(self, block, offset):
-        self.s3.Object(self.bucket_name, offset).put(Body=block)
+        self.s3.Object(self.bucket_name, str(offset)).put(Body=block)
 
     def delete_block(self, offset):
-        self.s3.Object(self.bucket_name, offset).delete()
+        try:
+            self.s3.Object(self.bucket_name, str(offset)).delete()
+            return 1
+        except:
+            return 0
 
 class Azure_Blob_Storage(cloud_storage):
     def __init__(self):
@@ -68,16 +79,25 @@ class Azure_Blob_Storage(cloud_storage):
     #        https://docs.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobclient?view=azure-python
     def list_blocks(self):
         # Return list of all objects present under the bucket
-        return self.azure_bucket.list_blobs()
+        obj_list = []
+        for obj in self.azure_bucket.list_blobs():
+            obj_list.append(int(obj.name))
+        return obj_list
 
     def read_block(self, offset):
-        return self.azure_service_client.get_blob_client(container=self.container_name, blob=offset).download_blob().readall()
-
+        try:
+            return bytearray(self.azure_service_client.get_blob_client(container=self.container_name, blob=str(offset)).download_blob().readall())
+        except:
+            return ''
     def write_block(self, block, offset):
-        self.azure_service_client.get_blob_client(container=self.container_name, blob=offset).upload_blob(block)
+        self.azure_service_client.get_blob_client(container=self.container_name, blob=str(offset)).upload_blob(block, overwrite= True)
 
     def delete_block(self, offset):
-        self.azure_service_client.get_blob_client(container=self.container_name, blob=offset).delete_blob()
+        try:
+            self.azure_service_client.get_blob_client(container=self.container_name, blob=str(offset)).delete_blob()
+            return 1
+        except:
+            return 0
 
 class Google_Cloud_Storage(cloud_storage):
     def __init__(self):
@@ -99,16 +119,25 @@ class Google_Cloud_Storage(cloud_storage):
     #        https://googleapis.dev/python/storage/latest/blobs.html
     def list_blocks(self):
         # Return list of all objects present under the bucket
-        return self.gcp_storage_client.list_blobs(self.gcp_bucket)
+        obj_list = []
+        for obj in self.gcp_storage_client.list_blobs(self.gcp_bucket):
+            obj_list.append(int(obj.name))
+        return obj_list
 
     def read_block(self, offset):
-        self.gcp_bucket.blob(offset).download_as_string()
-
+        try:
+            return bytearray(self.gcp_bucket.blob(str(offset)).download_as_string())
+        except:
+            return ''
     def write_block(self, block, offset):
-        self.gcp_bucket.blob(offset).upload_from_string(block)
+        self.gcp_bucket.blob(str(offset)).upload_from_string(str(block))
 
     def delete_block(self, offset):
-        self.gcp_bucket.blob(offset).delete()
+        try:
+            self.gcp_bucket.blob(str(offset)).delete()
+            return 1
+        except:
+            return 0
 
 class RAID_on_Cloud(NAS):
     def __init__(self):
@@ -121,8 +150,8 @@ class RAID_on_Cloud(NAS):
         self.block_size_limit = cloud_storage.block_size
         
     # Generic functions to make the code more readable
-    def cloud_storage_mapping(filename_tmp):
-        return int(hashlib.md5(filename_tmp).hexdigest(), base=16) % 3
+    def cloud_storage_mapping(self, filename_tmp):
+        return hash(filename_tmp) % 3
 
     # Implement the abstract functions from NAS
     def open(self, filename):
@@ -135,58 +164,55 @@ class RAID_on_Cloud(NAS):
         if newfd is None:
             raise IOError("Opened files exceed system limitation.")
         self.fds[newfd] = filename
+        #print(filename)
         return newfd
 
-    def read(self, fd, len, offset):
+    def read(self, fd, length, offset):
         if fd not in self.fds:
-            raise IOError("File descriptor %d does not exist." % fd)
+            #raise IOError("File descriptor %d does not exist." % fd)
+            return ''
             
         # Initialising variables to read
-        file_offset = offset % 4096
-        alignment_offset = offset / 4096
+        file_offset = offset % self.block_size_limit
+        alignment_offset = offset / self.block_size_limit
         backend_offset = self.fds[fd] + '_'
         data_block = ''
-        data_to_read = len
-
-        # Start reading  from first block till last but one block
-        while data_to_read + file_offset > self.block_size_limit:
-            backend_offset_tmp = backend_offset + str(alignment_offset*4096)
-            cloud_mapping = self.cloud_storage_mapping(backend_offset)
+        data_to_read = length + file_offset
+        
+        
+        
+        # Start reading  from first block till last
+        while data_to_read > 0:
+            backend_offset_tmp = backend_offset + str(alignment_offset*self.block_size_limit)
+            cloud_mapping = self.cloud_storage_mapping(backend_offset_tmp)
             if cloud_mapping == 0:
 
-                data_block_temp = self.backends[0].read_block(backend_offset_tmp)
+                data_block_temp = self.backends[0].read_block(str(hash(backend_offset_tmp)))
+                #if data_block_temp == '':
+                #    print("$$$$$$$$$$$$$$$$" + str(cloud_mapping))
 
             elif cloud_mapping == 1:
 
-                data_block_temp = self.backends[1].read_block(backend_offset_tmp)
+                data_block_temp = self.backends[1].read_block(str(hash(backend_offset_tmp)))
+                #if data_block_temp == '':
+                #    print("$$$$$$$$$$$$$$$$" + str(cloud_mapping))
 
             else:
 
-                data_block_temp = self.backends[2].read_block(backend_offset_tmp)
+                data_block_temp = self.backends[2].read_block(str(hash(backend_offset_tmp)))
+                #if data_block_temp == '':
+                #    print("$$$$$$$$$$$$$$$$" + str(cloud_mapping))
 
-            data_block = data_block + data_block_temp[file_offset:]
-            data_to_read = data_to_read - (self.block_size_limit - file_offset)
+            data_block = data_block + data_block_temp
+            
+            data_to_read = data_to_read - (self.block_size_limit)
+            #file_offset = 0
             alignment_offset += 1
-            file_offset = 0
+            # file_offset = 0
 
-        # Read the last block
-        backend_offset_tmp = backend_offset + str(alignment_offset*4096)
-        cloud_mapping = self.cloud_storage_mapping(backend_offset)
-        if cloud_mapping == 0:
+        data_block = data_block[file_offset:file_offset+length]
 
-            data_block_temp = self.backends[0].read_block(backend_offset_tmp)
-
-        elif cloud_mapping == 1:
-
-            data_block_temp = self.backends[1].read_block(backend_offset_tmp)
-
-        else:
-
-            data_block_temp = self.backends[2].read_block(backend_offset_tmp)
-
-        data_block = data_block + data_block_temp[:data_to_read]
-
-        return data_block
+        return data_block.rstrip('\0')
 
     def write(self, fd, data, offset):
         if fd not in self.fds:
@@ -194,68 +220,95 @@ class RAID_on_Cloud(NAS):
             
         # initialising variables to write
         fill_str = '\0'
-        file_offset = offset % 4096
-        alignment_offset = offset / 4096
+        file_offset = offset % self.block_size_limit
+        alignment_offset = offset / self.block_size_limit
         data_block = ''
         data_length = len(data)
         backend_offset = self.fds[fd] + '_'
 
         # checking if there is data already present in the block. If not, add null values of 4096 bytes
-        try:
-            data_block = self.read(fd, self.block_size_limit, alignment_offset*4096)
-        except:
+        
+        #data_block = self.read(fd, self.block_size_limit, hash(backend_offset + str(alignment_offset*self.block_size_limit)))
+        data_block = self.read(fd, self.block_size_limit, alignment_offset*self.block_size_limit)
+        #print("user data")
+        #print(data)
+        #print("cloud data")
+        #print("offset bu yser")
+        #print(offset)
+        #print(alignment_offset)
+        #print(data_block)
+        if data_block == '':
             for i in range(self.block_size_limit):
                 data_block += fill_str
-                
+        else:
+            for i in range(len(data_block), self.block_size_limit):
+                data_block += fill_str
+        
+        data = data_block[0:file_offset] + data
         #loop through and write all data blocks until last block    
 
-        while len(data) > self.block_size_limit:
-            data_block = data_block[:file_offset] + data[:self.block_size_limit - file_offset]
-            backend_offset_tmp = backend_offset + str(alignment_offset*4096)
+        while len(data) + file_offset > self.block_size_limit:
+            data_block = (data[0:self.block_size_limit])
+            backend_offset_tmp = backend_offset + str(alignment_offset*self.block_size_limit)
             cloud_mapping = self.cloud_storage_mapping(backend_offset_tmp)
 
             if cloud_mapping == 0:
 
-                self.backends[0].write_block(data_block, backend_offset_tmp)
-                self.backends[1].write_block(data_block, backend_offset_tmp)
+                self.backends[0].write_block(data_block, str(hash(backend_offset_tmp)))
+                self.backends[1].write_block(data_block, str(hash(backend_offset_tmp)))
 
             elif cloud_mapping == 1:
 
-                self.backends[1].write_block(data_block, backend_offset_tmp)
-                self.backends[2].write_block(data_block, backend_offset_tmp)
+                self.backends[1].write_block(data_block, str(hash(backend_offset_tmp)))
+                self.backends[2].write_block(data_block, str(hash(backend_offset_tmp)))
 
             else:
 
-                self.backends[2].write_block(data_block, backend_offset_tmp)
-                self.backends[0].write_block(data_block, backend_offset_tmp)
+                self.backends[2].write_block(data_block, str(hash(backend_offset_tmp)))
+                self.backends[0].write_block(data_block, str(hash(backend_offset_tmp)))
 
-            data = data[self.block_size_limit - file_offset:]
+            data = data[self.block_size_limit:]
             alignment_offset += 1
-            file_offset = 0
+            #file_offset = 0
             data_block = ''
-
+        
+        
+        #Checking if the data is there in the last block
+        data_block_last = ''
+        '''
+        try:
+            data_block_last = self.read(fd, self.block_size_limit, alignment_offset*self.block_size_limit)
+        except:
+            for i in range(self.block_size_limit):
+                data_block_last += fill_str
+        '''
+        data_block_last = self.read(fd, self.block_size_limit, alignment_offset*self.block_size_limit)
+        if data_block_last == '':
+            for i in range(self.block_size_limit):
+                data_block_last += fill_str
+        
         # write to the last block
-        data_block = data
-        for i in range(len(data), self.block_size_limit, 1):
-            data_block += fill_str
-
-        backend_offset_tmp = backend_offset + str(alignment_offset*4096)
+        
+        data_block = data + data_block_last[len(data):]
+        #for i in range(len(data), self.block_size_limit, 1):
+        #    data_block += fill_str
+        backend_offset_tmp = backend_offset + str(alignment_offset*self.block_size_limit)
         cloud_mapping = self.cloud_storage_mapping(backend_offset_tmp)
 
         if cloud_mapping == 0:
 
-            self.backends[0].write_block(data_block, backend_offset_tmp)
-            self.backends[1].write_block(data_block, backend_offset_tmp)
+            self.backends[0].write_block(data_block, str(hash(backend_offset_tmp)))
+            self.backends[1].write_block(data_block, str(hash(backend_offset_tmp)))
 
         elif cloud_mapping == 1:
 
-            self.backends[1].write_block(data_block, backend_offset_tmp)
-            self.backends[2].write_block(data_block, backend_offset_tmp)
+            self.backends[1].write_block(data_block, str(hash(backend_offset_tmp)))
+            self.backends[2].write_block(data_block, str(hash(backend_offset_tmp)))
 
         else:
 
-            self.backends[2].write_block(data_block, backend_offset_tmp)
-            self.backends[0].write_block(data_block, backend_offset_tmp)    
+            self.backends[2].write_block(data_block, str(hash(backend_offset_tmp)))
+            self.backends[0].write_block(data_block, str(hash(backend_offset_tmp)))    
                 
     
 
@@ -269,22 +322,43 @@ class RAID_on_Cloud(NAS):
     def delete(self, filename):
         # Check in AWS
         # Get list of objects and delete if the filename matches
-        for block in self.backends[0].list_blocks():
-            if filename == re.match(r'(.*)_\d+$', block.key).group(1):
-                self.backends[0].delete_block(block.key)
-                
-        # Check in Azure
-        #Get list of objects and delete if the filename matches
-        for block in self.backends[1].list_blocks():
-            if filename == re.match(r'(.*)_\d+$', block.name).group(1):
-                self.backends[1].delete_block(block.name)
-                
+        backend_offset = filename + '_'
+        alignment_offset = 0
+        
+        while True:
+            backend_offset_tmp = backend_offset + str(alignment_offset * self.block_size_limit)
+            cloud_mapping = self.cloud_storage_mapping(backend_offset_tmp)
+            if cloud_mapping == 0:
 
-        # Check in Google
-        #Get list of objects and delete if the filename matches
-        for block in self.backends[2].list_blocks():
-            if filename == re.match(r'(.*)_\d+$', block.name).group(1):
-                self.backends[2].delete_block(block.name)
+                response_delete = self.backends[0].delete_block(str(hash(backend_offset_tmp)))
+                if response_delete == 0:
+                    break
+                
+                response_delete = self.backends[1].delete_block(str(hash(backend_offset_tmp)))
+                if response_delete == 0:
+                    break
+                
+            elif cloud_mapping == 1:
+
+                response_delete = self.backends[1].delete_block(str(hash(backend_offset_tmp)))
+                if response_delete == 0:
+                    break
+                
+                response_delete = self.backends[2].delete_block(str(hash(backend_offset_tmp)))
+                if response_delete == 0:
+                    break    
+
+            else:
+
+                response_delete = self.backends[2].delete_block(str(hash(backend_offset_tmp)))
+                if response_delete == 0:
+                    break
+                
+                response_delete = self.backends[0].delete_block(str(hash(backend_offset_tmp)))
+                if response_delete == 0:
+                    break
+            
+            alignment_offset += 1
 
     def get_storage_sizes(self):
         return 0
